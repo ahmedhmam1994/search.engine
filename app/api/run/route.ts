@@ -1,21 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
-import { timingSafeEqual } from "crypto";
+import { auth } from "@/auth";
 
 const RUNTIME_URI = process.env.CODEWORDS_RUNTIME_URI || "https://runtime.codewords.ai";
 const API_KEY = process.env.CODEWORDS_API_KEY || "";
-const ACCESS_KEY = process.env.APP_ACCESS_KEY || "";
 const WORKFLOW_ID = "gorgias_lost_in_transit_counter_1a14803a";
-
-function isAuthorized(request: NextRequest): boolean {
-  if (!ACCESS_KEY) return false;
-  const provided = request.headers.get("x-app-key") || "";
-  const a = Buffer.from(provided);
-  const b = Buffer.from(ACCESS_KEY);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_DAYS = 90;
+
+const RATE_LIMIT = 10; // requests
+const RATE_WINDOW_MS = 60_000; // per minute
+const requestLog = new Map<string, number[]>();
+
+function isRateLimited(key: string): boolean {
+  const now = Date.now();
+  const timestamps = (requestLog.get(key) || []).filter((t) => now - t < RATE_WINDOW_MS);
+  timestamps.push(now);
+  requestLog.set(key, timestamps);
+  return timestamps.length > RATE_LIMIT;
+}
 
 function validateBody(input: unknown): { from_date?: string; to_date?: string; days?: number } | null {
   if (typeof input !== "object" || input === null) return null;
@@ -39,7 +42,12 @@ function validateBody(input: unknown): { from_date?: string; to_date?: string; d
 }
 
 export async function POST(request: NextRequest) {
-  if (!isAuthorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const session = await auth();
+  if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  if (isRateLimited(session.user.email)) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
 
   let raw: unknown;
   try { raw = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
