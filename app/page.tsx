@@ -15,23 +15,57 @@ export default function Home() {
   const [data, setData] = useState<TicketData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [accessKey, setAccessKey] = useState<string | null>(() =>
+    typeof window !== "undefined" ? window.sessionStorage.getItem("prowldesk_key") : null
+  );
+  const [keyInput, setKeyInput] = useState("");
+
+  const submitKey = useCallback(() => {
+    if (!keyInput.trim()) return;
+    window.sessionStorage.setItem("prowldesk_key", keyInput.trim());
+    setAccessKey(keyInput.trim());
+  }, [keyInput]);
 
   const runQuery = useCallback(async () => {
+    if (!accessKey) return;
     setLoading(true); setError(""); setData(null);
     try {
       const body: Record<string, unknown> = {};
       if (fromDate) { body.from_date = fromDate; if (toDate) body.to_date = toDate; }
       else { body.days = 7; }
-      const res = await fetch("/api/run", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) });
+      const res = await fetch("/api/run", { method: "POST", headers: {"Content-Type": "application/json", "x-app-key": accessKey}, body: JSON.stringify(body) });
+      if (res.status === 401) { window.sessionStorage.removeItem("prowldesk_key"); setAccessKey(null); throw new Error("Unauthorized"); }
       if (!res.ok) throw new Error("Failed");
       setData(await res.json());
     } catch { setError("Something went wrong."); }
     finally { setLoading(false); }
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, accessKey]);
 
   const maxDaily = data ? Math.max(1, ...Object.values(data.daily_counts)) : 1;
   const days = data ? Object.entries(data.daily_counts).sort() : [];
-  const rate = data ? ((data.total_lost_in_transit / data.total_checked) * 100).toFixed(2) : "0.00";
+  const rate = data && data.total_checked > 0 ? ((data.total_lost_in_transit / data.total_checked) * 100).toFixed(2) : "0.00";
+
+  if (!accessKey) {
+    return (
+      <div className="min-h-screen bg-[#FAF8F5] bg-grain flex items-center justify-center px-6">
+        <div className="bg-white rounded-2xl border border-[#E8E1D5] p-8 shadow-sm max-w-sm w-full">
+          <h1 className="text-lg font-semibold text-[#1A1A2E] mb-1" style={{fontFamily:"var(--font-heading)"}}>ProwlDesk</h1>
+          <p className="text-xs text-[#6B6B7B] mb-4">Enter access key to continue</p>
+          <input
+            type="password"
+            value={keyInput}
+            onChange={e => setKeyInput(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && submitKey()}
+            className="w-full px-4 py-2.5 rounded-xl border border-[#E8E1D5] bg-[#FAF8F5] text-sm text-[#1A1A2E] focus:ring-2 focus:ring-[#D4A853]/30 transition-all mb-3"
+            placeholder="Access key"
+          />
+          <button onClick={submitKey} className="w-full px-6 py-2.5 bg-[#B8860B] hover:bg-[#8B6508] text-white rounded-xl text-sm font-semibold cursor-pointer">
+            Sign in
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#FAF8F5] bg-grain">
