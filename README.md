@@ -30,6 +30,10 @@ npm run dev
 | `AUTH_GOOGLE_ID`         | OAuth client ID from the Google Cloud Console.                                 |
 | `AUTH_GOOGLE_SECRET`     | OAuth client secret from the Google Cloud Console.                             |
 | `ALLOWED_EMAILS`         | Comma-separated list of Google account emails allowed to sign in.              |
+| `NEXT_PUBLIC_GORGIAS_SUBDOMAIN` | Optional. Your Gorgias subdomain — if set, ticket IDs link directly to Gorgias. |
+
+The app validates all required env vars on server startup and fails fast with a clear error
+listing what's missing, rather than starting in a broken state.
 
 In the Google Cloud Console, add these as authorized redirect URIs for the OAuth client:
 `http://localhost:3000/api/auth/callback/google` (dev) and

@@ -1,7 +1,8 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, Suspense } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
-import { Calendar, TrendingUp, Package, AlertTriangle, Search, Loader2, ChevronRight, LogOut } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Calendar, TrendingUp, Package, AlertTriangle, Search, Loader2, ChevronRight, LogOut, Download } from "lucide-react";
 
 type TicketData = {
   from_date: string; to_date: string;
@@ -9,6 +10,52 @@ type TicketData = {
   daily_counts: Record<string, number>;
   tickets: Array<{ id: number; subject: string; created: string; status: string }>;
 };
+
+const GORGIAS_SUBDOMAIN = process.env.NEXT_PUBLIC_GORGIAS_SUBDOMAIN;
+const AUTH_ERROR_MESSAGES: Record<string, string> = {
+  AccessDenied: "Your email isn't authorized to access ProwlDesk. Contact an admin to be added.",
+};
+
+function ticketUrl(id: number): string | null {
+  return GORGIAS_SUBDOMAIN ? `https://${GORGIAS_SUBDOMAIN}.gorgias.com/app/ticket/${id}` : null;
+}
+
+function downloadCsv(data: TicketData) {
+  const header = "id,subject,created,status";
+  const rows = data.tickets.map((t) =>
+    [t.id, `"${t.subject.replace(/"/g, '""')}"`, t.created, t.status].join(",")
+  );
+  const csv = [header, ...rows].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `prowldesk-tickets-${data.from_date}-to-${data.to_date}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function SignInCard() {
+  const searchParams = useSearchParams();
+  const authError = searchParams.get("error");
+  return (
+    <div className="min-h-screen bg-[#FAF8F5] bg-grain flex items-center justify-center px-6">
+      <div className="bg-white rounded-2xl border border-[#E8E1D5] p-8 shadow-sm max-w-sm w-full text-center">
+        <h1 className="text-lg font-semibold text-[#1A1A2E] mb-1" style={{fontFamily:"var(--font-heading)"}}>ProwlDesk</h1>
+        <p className="text-xs text-[#6B6B7B] mb-4">Sign in with your Google account to continue</p>
+        {authError && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-xs text-red-700 flex items-center gap-2 text-left" role="alert">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+            {AUTH_ERROR_MESSAGES[authError] || "Sign-in failed. Please try again."}
+          </div>
+        )}
+        <button onClick={() => signIn("google")} className="w-full px-6 py-2.5 bg-[#B8860B] hover:bg-[#8B6508] text-white rounded-xl text-sm font-semibold cursor-pointer">
+          Sign in with Google
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function Home() {
   const { data: session, status } = useSession();
@@ -43,15 +90,9 @@ export default function Home() {
 
   if (!session) {
     return (
-      <div className="min-h-screen bg-[#FAF8F5] bg-grain flex items-center justify-center px-6">
-        <div className="bg-white rounded-2xl border border-[#E8E1D5] p-8 shadow-sm max-w-sm w-full text-center">
-          <h1 className="text-lg font-semibold text-[#1A1A2E] mb-1" style={{fontFamily:"var(--font-heading)"}}>ProwlDesk</h1>
-          <p className="text-xs text-[#6B6B7B] mb-4">Sign in with your Google account to continue</p>
-          <button onClick={() => signIn("google")} className="w-full px-6 py-2.5 bg-[#B8860B] hover:bg-[#8B6508] text-white rounded-xl text-sm font-semibold cursor-pointer">
-            Sign in with Google
-          </button>
-        </div>
-      </div>
+      <Suspense fallback={<div className="min-h-screen bg-[#FAF8F5] bg-grain" />}>
+        <SignInCard />
+      </Suspense>
     );
   }
 
@@ -91,7 +132,19 @@ export default function Home() {
           </div>
           <div className="flex items-center justify-center gap-2 mb-6 text-sm text-[#6B6B7B]"><Calendar className="w-3.5 h-3.5" aria-hidden="true"/><span>{data.from_date}</span><ChevronRight className="w-3.5 h-3.5" aria-hidden="true"/><span>{data.to_date}</span></div>
           <div className="bg-white rounded-2xl border border-[#E8E1D5] p-6 mb-8 shadow-sm"><h2 className="text-sm font-semibold text-[#6B6B7B] uppercase tracking-wider mb-6">Daily Breakdown</h2><div className="space-y-2">{days.map(([day,count])=><div key={day} className="flex items-center gap-4"><span className="w-20 text-xs text-[#6B6B7B] text-right font-medium flex-shrink-0">{new Date(day+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span><div className="flex-1 h-8 bg-[#F5F0E8] rounded-lg overflow-hidden"><div className="gold-bar h-full rounded-lg transition-all duration-500 ease-out flex items-center px-2.5" style={{width:`${Math.max(8,(count/maxDaily)*100)}%`}}>{count>0&&<span className="text-xs font-bold text-white">{count}</span>}</div></div></div>)}{days.length===0&&<p className="text-center text-[#6B6B7B] text-sm py-8">No data</p>}</div></div>
-          <div className="bg-white rounded-2xl border border-[#E8E1D5] shadow-sm overflow-hidden"><div className="px-6 py-4 border-b border-[#E8E1D5]"><h2 className="text-sm font-semibold text-[#6B6B7B] uppercase tracking-wider">Matched Tickets ({data.tickets.length})</h2></div><div className="divide-y divide-[#E8E1D5] max-h-96 overflow-y-auto">{data.tickets.map(t=><div key={t.id} className="px-6 py-3 flex items-center justify-between hover:bg-[#FAF8F5] transition-colors"><div className="flex items-center gap-3 min-w-0"><span className="text-xs text-[#8B6508] font-medium w-28 flex-shrink-0">#{t.id}</span><span className="text-sm text-[#1A1A2E] truncate max-w-md">{t.subject}</span></div><span className="text-xs px-2.5 py-1 rounded-full bg-[#F5F0E8] text-[#8B6508] font-medium ml-2">{t.status}</span></div>)}</div></div>
+          <div className="bg-white rounded-2xl border border-[#E8E1D5] shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-[#E8E1D5] flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-[#6B6B7B] uppercase tracking-wider">Matched Tickets ({data.tickets.length})</h2>
+              <button onClick={() => downloadCsv(data)} className="flex items-center gap-1.5 text-xs font-semibold text-[#8B6508] hover:text-[#B8860B] cursor-pointer">
+                <Download className="w-3.5 h-3.5" aria-hidden="true" />Export CSV
+              </button>
+            </div>
+            <div className="divide-y divide-[#E8E1D5] max-h-96 overflow-y-auto">{data.tickets.map(t=>{
+              const url = ticketUrl(t.id);
+              const idLabel = <span className="text-xs text-[#8B6508] font-medium w-28 flex-shrink-0">#{t.id}</span>;
+              return <div key={t.id} className="px-6 py-3 flex items-center justify-between hover:bg-[#FAF8F5] transition-colors"><div className="flex items-center gap-3 min-w-0">{url ? <a href={url} target="_blank" rel="noopener noreferrer" className="hover:underline">{idLabel}</a> : idLabel}<span className="text-sm text-[#1A1A2E] truncate max-w-md">{t.subject}</span></div><span className="text-xs px-2.5 py-1 rounded-full bg-[#F5F0E8] text-[#8B6508] font-medium ml-2">{t.status}</span></div>;
+            })}</div>
+          </div>
         </>}
         {!data && !loading && <div className="text-center py-20"><div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[#F5F0E8] flex items-center justify-center"><Search className="w-6 h-6 text-[#B8860B]" aria-hidden="true"/></div><h2 className="text-lg font-semibold text-[#1A1A2E] mb-1" style={{fontFamily:"var(--font-heading)"}}>Ready to Analyze</h2><p className="text-sm text-[#6B6B7B]">Choose a date range and run the report</p></div>}
       </main>
