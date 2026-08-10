@@ -2,7 +2,9 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
   const required = [
-    "CODEWORDS_API_KEY",
+    "NEXT_PUBLIC_GORGIAS_SUBDOMAIN",
+    "GORGIAS_EMAIL",
+    "GORGIAS_API_KEY",
     "AUTH_GOOGLE_ID",
     "AUTH_GOOGLE_SECRET",
     "AUTH_SECRET",

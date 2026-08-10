@@ -5,9 +5,10 @@ report over a date range and shows totals, a daily breakdown, and the matching t
 
 ## How it works
 
-The frontend (Next.js) posts a date range to `/api/run`, which forwards the request to a
-CodeWords workflow (`gorgias_lost_in_transit_counter`) that queries Gorgias and returns the
-aggregated results.
+The frontend (Next.js) posts a date range to `/api/run`, which calls the Gorgias REST API directly:
+it pages through `GET /api/tickets` (newest first), stops once it passes the start of the range, and
+tallies which tickets in that range carry the `Lost in Transit` tag. Gorgias's ticket search doesn't
+support filtering by tag or date server-side, so this filtering happens client-side in the route.
 
 Access is gated by Google sign-in (NextAuth). Only emails listed in `ALLOWED_EMAILS` can sign in;
 everyone else is rejected at the OAuth callback. `/api/run` also rate-limits requests per signed-in
@@ -22,15 +23,16 @@ cp .env.example .env.local   # fill in the values below
 npm run dev
 ```
 
-| Variable                | Description                                                                    |
-| ------------------------ | -------------------------------------------------------------------------------- |
-| `CODEWORDS_RUNTIME_URI`  | Base URL of the CodeWords runtime. Defaults to `https://runtime.codewords.ai`. |
-| `CODEWORDS_API_KEY`      | Bearer token for server-to-server calls to CodeWords.                          |
-| `AUTH_SECRET`            | Random secret NextAuth uses to sign session tokens (`openssl rand -base64 32`). |
-| `AUTH_GOOGLE_ID`         | OAuth client ID from the Google Cloud Console.                                 |
-| `AUTH_GOOGLE_SECRET`     | OAuth client secret from the Google Cloud Console.                             |
-| `ALLOWED_EMAILS`         | Comma-separated list of Google account emails allowed to sign in.              |
-| `NEXT_PUBLIC_GORGIAS_SUBDOMAIN` | Optional. Your Gorgias subdomain — if set, ticket IDs link directly to Gorgias. |
+| Variable                        | Description                                                                    |
+| -------------------------------- | -------------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_GORGIAS_SUBDOMAIN`  | Your Gorgias subdomain (before `.gorgias.com`). Used for both API calls and ticket links. |
+| `GORGIAS_EMAIL`                 | Email associated with the Gorgias REST API key.                                |
+| `GORGIAS_API_KEY`               | Gorgias REST API key (Settings → REST API in Gorgias).                         |
+| `AUTH_SECRET`                   | Random secret NextAuth uses to sign session tokens (`openssl rand -base64 32`). |
+| `AUTH_GOOGLE_ID`                | OAuth client ID from the Google Cloud Console.                                 |
+| `AUTH_GOOGLE_SECRET`            | OAuth client secret from the Google Cloud Console.                             |
+| `ALLOWED_EMAILS`                | Comma-separated list of Google account emails allowed to sign in.              |
+| `AUTH_URL`                      | Full URL of the deployed app (needed so callback URLs are built correctly).    |
 
 The app validates all required env vars on server startup and fails fast with a clear error
 listing what's missing, rather than starting in a broken state.
