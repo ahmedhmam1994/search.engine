@@ -9,6 +9,8 @@ export async function register() {
     "AUTH_GOOGLE_SECRET",
     "AUTH_SECRET",
     "ALLOWED_EMAILS",
+    "KV_REST_API_URL",
+    "KV_REST_API_TOKEN",
   ];
   const missing = required.filter((name) => !process.env[name]);
   if (missing.length > 0) {

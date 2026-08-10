@@ -65,8 +65,10 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const [progress, setProgress] = useState<{ pages: number; checked: number } | null>(null);
+
   const runQuery = useCallback(async () => {
-    setLoading(true); setError(""); setData(null);
+    setLoading(true); setError(""); setData(null); setProgress(null);
     try {
       const body: Record<string, unknown> = {};
       if (fromDate) { body.from_date = fromDate; if (toDate) body.to_date = toDate; }
@@ -74,10 +76,24 @@ export default function Home() {
       const res = await fetch("/api/run", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) });
       if (res.status === 429) throw new Error("Too many requests — please wait a moment and try again.");
       if (res.status === 401) throw new Error("Unauthorized");
-      if (!res.ok) throw new Error("Failed");
-      setData(await res.json());
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || "Failed");
+      const { jobId } = await res.json();
+
+      const deadline = Date.now() + 5 * 60_000;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const statusRes = await fetch(`/api/run/status/${jobId}`);
+        if (statusRes.status === 401) throw new Error("Unauthorized");
+        if (!statusRes.ok) throw new Error("Failed");
+        const job = await statusRes.json();
+        if (job.status === "running") { setProgress({ pages: job.pagesFetched, checked: job.ticketsChecked }); continue; }
+        if (job.status === "error") throw new Error(job.error || "Failed");
+        setData(job.result);
+        return;
+      }
+      throw new Error("Report timed out — try a smaller date range.");
     } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong."); }
-    finally { setLoading(false); }
+    finally { setLoading(false); setProgress(null); }
   }, [fromDate, toDate]);
 
   const maxDaily = data ? Math.max(1, ...Object.values(data.daily_counts)) : 1;
@@ -123,7 +139,10 @@ export default function Home() {
           <p className="mt-3 text-xs text-[#6B6B7B]">Leave empty for last 7 days</p>
         </div>
         {error && <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-8 text-sm text-red-700 flex items-center gap-2" role="alert"><AlertTriangle className="w-4 h-4" aria-hidden="true" />{error}</div>}
-        {loading && <div className="space-y-6 animate-pulse"><div className="grid grid-cols-3 gap-4">{[1,2,3].map(i=><div key={i} className="bg-white rounded-2xl border border-[#E8E1D5] p-6 h-28"/>)}</div><div className="bg-white rounded-2xl border border-[#E8E1D5] p-6 h-64"/><div className="bg-white rounded-2xl border border-[#E8E1D5] p-6 h-48"/></div>}
+        {loading && <>
+          {progress && <p className="text-center text-xs text-[#6B6B7B] mb-4">Checked {progress.checked.toLocaleString()} tickets across {progress.pages} page{progress.pages===1?"":"s"}…</p>}
+          <div className="space-y-6 animate-pulse"><div className="grid grid-cols-3 gap-4">{[1,2,3].map(i=><div key={i} className="bg-white rounded-2xl border border-[#E8E1D5] p-6 h-28"/>)}</div><div className="bg-white rounded-2xl border border-[#E8E1D5] p-6 h-64"/><div className="bg-white rounded-2xl border border-[#E8E1D5] p-6 h-48"/></div>
+        </>}
         {data && !loading && <>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             <div className="bg-white rounded-2xl border border-[#E8E1D5] p-6 shadow-sm"><div className="flex items-center gap-2 mb-3"><div className="w-8 h-8 rounded-lg bg-[#F5F0E8] flex items-center justify-center"><Package className="w-4 h-4 text-[#8B6508]" aria-hidden="true"/></div><span className="text-xs font-semibold text-[#6B6B7B] uppercase tracking-wider">Tickets Checked</span></div><p className="text-3xl font-bold text-[#1A1A2E]" style={{fontFamily:"var(--font-heading)"}}>{data.total_checked.toLocaleString()}</p></div>
