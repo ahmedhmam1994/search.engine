@@ -70,28 +70,52 @@ export default function Home() {
   const runQuery = useCallback(async () => {
     setLoading(true); setError(""); setData(null); setProgress(null);
     try {
-      const body: Record<string, unknown> = {};
-      if (fromDate) { body.from_date = fromDate; if (toDate) body.to_date = toDate; }
-      else { body.days = 7; }
-      const res = await fetch("/api/run", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) });
-      if (res.status === 429) throw new Error("Too many requests — please wait a moment and try again.");
-      if (res.status === 401) throw new Error("Unauthorized");
-      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || "Failed");
-      const { jobId } = await res.json();
-
-      const deadline = Date.now() + 5 * 60_000;
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 1500));
-        const statusRes = await fetch(`/api/run/status/${jobId}`);
-        if (statusRes.status === 401) throw new Error("Unauthorized");
-        if (!statusRes.ok) throw new Error("Failed");
-        const job = await statusRes.json();
-        if (job.status === "running") { setProgress({ pages: job.pagesFetched, checked: job.ticketsChecked }); continue; }
-        if (job.status === "error") throw new Error(job.error || "Failed");
-        setData(job.result);
-        return;
+      const today = new Date().toISOString().slice(0, 10);
+      let from = fromDate;
+      let to = toDate;
+      if (!from) {
+        const start = new Date();
+        start.setUTCDate(start.getUTCDate() - 6);
+        from = start.toISOString().slice(0, 10);
+        to = today;
+      } else if (!to) {
+        to = today;
       }
-      throw new Error("Report timed out — try a smaller date range.");
+
+      let cursor: string | null = null;
+      let totalChecked = 0;
+      const dailyCounts: Record<string, number> = {};
+      const tickets: TicketData["tickets"] = [];
+      let pages = 0;
+
+      let done = false;
+      while (!done) {
+        const pageRes: Response = await fetch("/api/run", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ from_date: from, to_date: to, cursor }) });
+        if (pageRes.status === 429) throw new Error("Too many requests — please wait a moment and try again.");
+        if (pageRes.status === 401) throw new Error("Unauthorized");
+        if (!pageRes.ok) throw new Error((await pageRes.json().catch(() => null))?.error || "Failed");
+        const page = await pageRes.json();
+
+        pages++;
+        totalChecked += page.checked;
+        tickets.push(...page.tickets);
+        for (const [day, count] of Object.entries(page.daily_counts as Record<string, number>)) {
+          dailyCounts[day] = (dailyCounts[day] || 0) + count;
+        }
+        setProgress({ pages, checked: totalChecked });
+
+        done = page.done;
+        cursor = page.next_cursor;
+      }
+
+      setData({
+        from_date: from,
+        to_date: to,
+        total_checked: totalChecked,
+        total_lost_in_transit: tickets.length,
+        daily_counts: dailyCounts,
+        tickets,
+      });
     } catch (e) { setError(e instanceof Error ? e.message : "Something went wrong."); }
     finally { setLoading(false); setProgress(null); }
   }, [fromDate, toDate]);
