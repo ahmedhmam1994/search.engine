@@ -2,17 +2,17 @@
 import { useState, useCallback, Suspense } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
-import { Calendar, TrendingUp, Package, AlertTriangle, Search, Loader2, ChevronRight, LogOut, Download } from "lucide-react";
+import { Calendar, TrendingUp, Package, AlertTriangle, Search, Loader2, ChevronRight, LogOut, Download, X } from "lucide-react";
 
 type TicketData = {
-  from_date: string; to_date: string; tag: string;
+  from_date: string; to_date: string; tags: string[];
   total_checked: number; total_lost_in_transit: number;
   daily_counts: Record<string, number>;
   tickets: Array<{ id: number; subject: string; created: string; status: string }>;
 };
 
 type PartialState = {
-  from: string; to: string; tag: string; cursor: string | null;
+  from: string; to: string; tags: string[]; cursor: string | null;
   totalChecked: number; dailyCounts: Record<string, number>;
   tickets: TicketData["tickets"]; pages: number;
 };
@@ -23,6 +23,7 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
 };
 const DEFAULT_TAG = "Lost in Transit";
 const MAX_DAYS = 90;
+const MAX_TAGS = 10;
 const MAX_PAGE_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 500;
 
@@ -30,14 +31,14 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchPageWithRetry(from: string, to: string, cursor: string | null, tag: string) {
+async function fetchPageWithRetry(from: string, to: string, cursor: string | null, tags: string[]) {
   for (let attempt = 1; attempt <= MAX_PAGE_RETRIES; attempt++) {
     let res: Response;
     try {
       res = await fetch("/api/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ from_date: from, to_date: to, cursor, tag }),
+        body: JSON.stringify({ from_date: from, to_date: to, cursor, tags }),
       });
     } catch {
       if (attempt === MAX_PAGE_RETRIES) throw new Error("Network error — please check your connection and try again.");
@@ -116,7 +117,8 @@ export default function Home() {
   const { data: session, status } = useSession();
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [tag, setTag] = useState(DEFAULT_TAG);
+  const [tags, setTags] = useState<string[]>([DEFAULT_TAG]);
+  const [tagInput, setTagInput] = useState("");
   const [data, setData] = useState<TicketData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -124,6 +126,17 @@ export default function Home() {
 
   const [progress, setProgress] = useState<{ pages: number; checked: number } | null>(null);
   const [partial, setPartial] = useState<PartialState | null>(null);
+
+  const addTag = useCallback(() => {
+    const value = tagInput.trim();
+    if (!value) return;
+    setTags((prev) => (prev.includes(value) || prev.length >= MAX_TAGS ? prev : [...prev, value]));
+    setTagInput("");
+  }, [tagInput]);
+
+  const removeTag = useCallback((value: string) => {
+    setTags((prev) => prev.filter((t) => t !== value));
+  }, []);
 
   const applyPreset = useCallback((days: number, alignToMonthStart = false) => {
     const end = new Date();
@@ -139,13 +152,13 @@ export default function Home() {
     if (!resume) { setData(null); setPartial(null); setTicketFilter(""); }
     setProgress(null);
 
-    let from: string, to: string, runTag: string, cursor: string | null;
+    let from: string, to: string, runTags: string[], cursor: string | null;
     let totalChecked: number, pages: number;
     let dailyCounts: Record<string, number>;
     let tickets: TicketData["tickets"];
 
     if (resume) {
-      ({ from, to, tag: runTag, cursor, totalChecked, dailyCounts, tickets, pages } = resume);
+      ({ from, to, tags: runTags, cursor, totalChecked, dailyCounts, tickets, pages } = resume);
     } else {
       try {
         const today = new Date().toISOString().slice(0, 10);
@@ -165,7 +178,7 @@ export default function Home() {
           throw new Error(`Date range too wide — pick at most ${MAX_DAYS} days.`);
         }
 
-        runTag = tag.trim() || DEFAULT_TAG;
+        runTags = tags.length > 0 ? tags : [DEFAULT_TAG];
       } catch (e) {
         setError(e instanceof Error ? e.message : "Something went wrong.");
         setLoading(false); setProgress(null);
@@ -177,7 +190,7 @@ export default function Home() {
     try {
       let done = false;
       while (!done) {
-        const page = await fetchPageWithRetry(from, to, cursor, runTag);
+        const page = await fetchPageWithRetry(from, to, cursor, runTags);
 
         pages++;
         totalChecked += page.checked;
@@ -194,7 +207,7 @@ export default function Home() {
       setData({
         from_date: from,
         to_date: to,
-        tag: runTag,
+        tags: runTags,
         total_checked: totalChecked,
         total_lost_in_transit: tickets.length,
         daily_counts: dailyCounts,
@@ -203,9 +216,9 @@ export default function Home() {
       setPartial(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
-      setPartial(pages > 0 ? { from, to, tag: runTag, cursor, totalChecked, dailyCounts, tickets, pages } : null);
+      setPartial(pages > 0 ? { from, to, tags: runTags, cursor, totalChecked, dailyCounts, tickets, pages } : null);
     } finally { setLoading(false); setProgress(null); }
-  }, [fromDate, toDate, tag]);
+  }, [fromDate, toDate, tags]);
 
   const maxDaily = data ? Math.max(1, ...Object.values(data.daily_counts)) : 1;
   const days = data ? Object.entries(data.daily_counts).sort() : [];
@@ -252,7 +265,30 @@ export default function Home() {
           <div className="flex flex-wrap items-end gap-4">
             <div className="flex-1 min-w-[180px]"><label htmlFor="from-date" className="block text-xs font-semibold text-[#6B6B7B] uppercase tracking-wider mb-1.5">From Date</label><div className="relative"><Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#B8860B]" aria-hidden="true" /><input id="from-date" type="date" value={fromDate} onChange={e=>setFromDate(e.target.value)} className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#E8E1D5] bg-[#FAF8F5] text-sm text-[#1A1A2E] focus:ring-2 focus:ring-[#D4A853]/30 transition-all" /></div></div>
             <div className="flex-1 min-w-[180px]"><label htmlFor="to-date" className="block text-xs font-semibold text-[#6B6B7B] uppercase tracking-wider mb-1.5">To Date</label><div className="relative"><Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#B8860B]" aria-hidden="true" /><input id="to-date" type="date" value={toDate} onChange={e=>setToDate(e.target.value)} className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-[#E8E1D5] bg-[#FAF8F5] text-sm text-[#1A1A2E] focus:ring-2 focus:ring-[#D4A853]/30 transition-all" /></div></div>
-            <div className="flex-1 min-w-[180px]"><label htmlFor="tag" className="block text-xs font-semibold text-[#6B6B7B] uppercase tracking-wider mb-1.5">Tag</label><input id="tag" type="text" value={tag} onChange={e=>setTag(e.target.value)} placeholder={DEFAULT_TAG} className="w-full px-4 py-2.5 rounded-xl border border-[#E8E1D5] bg-[#FAF8F5] text-sm text-[#1A1A2E] focus:ring-2 focus:ring-[#D4A853]/30 transition-all" /></div>
+            <div className="flex-1 min-w-[220px]">
+              <label htmlFor="tag-input" className="block text-xs font-semibold text-[#6B6B7B] uppercase tracking-wider mb-1.5">Tags (match any)</label>
+              <div className="w-full px-2 py-1.5 rounded-xl border border-[#E8E1D5] bg-[#FAF8F5] flex flex-wrap items-center gap-1.5 focus-within:ring-2 focus-within:ring-[#D4A853]/30 transition-all">
+                {tags.map((t) => (
+                  <span key={t} className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#F5F0E8] text-xs text-[#8B6508] font-medium">
+                    {t}
+                    <button type="button" onClick={() => removeTag(t)} aria-label={`Remove tag ${t}`} className="hover:text-red-600 cursor-pointer"><X className="w-3 h-3" aria-hidden="true" /></button>
+                  </span>
+                ))}
+                <input
+                  id="tag-input"
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(); }
+                    else if (e.key === "Backspace" && !tagInput && tags.length > 0) { removeTag(tags[tags.length - 1]); }
+                  }}
+                  onBlur={addTag}
+                  placeholder={tags.length === 0 ? DEFAULT_TAG : "Add tag…"}
+                  className="flex-1 min-w-[100px] px-1.5 py-1 bg-transparent text-sm text-[#1A1A2E] focus:outline-none"
+                />
+              </div>
+            </div>
             <button onClick={() => runQuery()} disabled={loading} className="group px-6 py-2.5 bg-[#B8860B] hover:bg-[#8B6508] disabled:opacity-50 text-white rounded-full text-sm font-semibold flex items-center gap-2.5 cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.98]">
               {loading?"Running...":"Run Report"}
               <span className="w-7 h-7 rounded-full bg-white/15 flex items-center justify-center transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5">
@@ -281,7 +317,7 @@ export default function Home() {
         {data && !loading && <>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             <Card className="animate-in fade-in slide-in-from-bottom-4 duration-700" innerClassName="p-6"><div className="flex items-center gap-2 mb-3"><div className="w-8 h-8 rounded-lg bg-[#F5F0E8] flex items-center justify-center"><Package className="w-4 h-4 text-[#8B6508]" aria-hidden="true"/></div><span className="text-xs font-semibold text-[#6B6B7B] uppercase tracking-wider">Tickets Checked</span></div><p className="text-3xl font-bold text-[#1A1A2E]" style={{fontFamily:"var(--font-heading)"}}>{data.total_checked.toLocaleString()}</p></Card>
-            <Card accent className="animate-in fade-in slide-in-from-bottom-4 duration-700 delay-100" innerClassName="p-6"><div className="flex items-center gap-2 mb-3"><div className="w-8 h-8 rounded-lg bg-[#B8860B] flex items-center justify-center"><AlertTriangle className="w-4 h-4 text-white" aria-hidden="true"/></div><span className="text-xs font-semibold text-[#6B6B7B] uppercase tracking-wider truncate" title={data.tag}>{data.tag}</span></div><p className="text-3xl font-bold text-[#B8860B]" style={{fontFamily:"var(--font-heading)"}}>{data.total_lost_in_transit}</p></Card>
+            <Card accent className="animate-in fade-in slide-in-from-bottom-4 duration-700 delay-100" innerClassName="p-6"><div className="flex items-center gap-2 mb-3"><div className="w-8 h-8 rounded-lg bg-[#B8860B] flex items-center justify-center"><AlertTriangle className="w-4 h-4 text-white" aria-hidden="true"/></div><span className="text-xs font-semibold text-[#6B6B7B] uppercase tracking-wider truncate" title={data.tags.join(", ")}>{data.tags.join(", ")}</span></div><p className="text-3xl font-bold text-[#B8860B]" style={{fontFamily:"var(--font-heading)"}}>{data.total_lost_in_transit}</p></Card>
             <Card className="animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150" innerClassName="p-6"><div className="flex items-center gap-2 mb-3"><div className="w-8 h-8 rounded-lg bg-[#F5F0E8] flex items-center justify-center"><TrendingUp className="w-4 h-4 text-[#8B6508]" aria-hidden="true"/></div><span className="text-xs font-semibold text-[#6B6B7B] uppercase tracking-wider">Rate</span></div><p className="text-3xl font-bold text-[#1A1A2E]" style={{fontFamily:"var(--font-heading)"}}>{rate}%</p></Card>
           </div>
           <div className="flex items-center justify-center gap-2 mb-6 text-sm text-[#6B6B7B]"><Calendar className="w-3.5 h-3.5" aria-hidden="true"/><span>{data.from_date}</span><ChevronRight className="w-3.5 h-3.5" aria-hidden="true"/><span>{data.to_date}</span></div>

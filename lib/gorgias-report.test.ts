@@ -108,9 +108,24 @@ describe("fetchOnePage", () => {
       meta: { next_cursor: null },
     });
 
-    const result = await fetchOnePage("2024-05-01", "2024-05-31", null, "Damaged in Transit");
+    const result = await fetchOnePage("2024-05-01", "2024-05-31", null, ["Damaged in Transit"]);
 
     expect(result.tickets.map((t) => t.id)).toEqual([1]);
+  });
+
+  it("matches tickets against any of multiple tags (OR)", async () => {
+    mockFetch({
+      data: [
+        ticket(3, "2024-05-16T10:00:00.000Z", ["Refund"]),
+        ticket(2, "2024-05-15T10:00:00.000Z", ["Damaged in Transit"]),
+        ticket(1, "2024-05-14T10:00:00.000Z", ["Lost in Transit"]),
+      ],
+      meta: { next_cursor: null },
+    });
+
+    const result = await fetchOnePage("2024-05-01", "2024-05-31", null, ["Lost in Transit", "Damaged in Transit"]);
+
+    expect(result.tickets.map((t) => t.id)).toEqual([2, 1]);
   });
 
   it("throws with the Gorgias error body on a non-ok response", async () => {

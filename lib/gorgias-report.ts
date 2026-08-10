@@ -32,7 +32,7 @@ export async function fetchOnePage(
   fromDate: string,
   toDate: string,
   cursor: string | null,
-  tag: string = LOST_IN_TRANSIT_TAG
+  tags: string[] = [LOST_IN_TRANSIT_TAG]
 ): Promise<PageResult> {
   const rangeStart = new Date(`${fromDate}T00:00:00.000Z`).getTime();
   const rangeEnd = new Date(`${toDate}T23:59:59.999Z`).getTime();
@@ -63,7 +63,7 @@ export async function fetchOnePage(
     }
 
     checked++;
-    if (t.tags.some((tt) => tt.name === tag)) {
+    if (t.tags.some((tt) => tags.includes(tt.name))) {
       const day = t.created_datetime.slice(0, 10);
       dailyCounts[day] = (dailyCounts[day] || 0) + 1;
       tickets.push({ id: t.id, subject: t.subject, created: t.created_datetime, status: t.status });

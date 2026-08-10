@@ -8,6 +8,7 @@ export const maxDuration = 20;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_DAYS = 90;
 const MAX_TAG_LENGTH = 100;
+const MAX_TAGS = 10;
 
 // Generous limit: a single report can legitimately need hundreds of page
 // fetches for a wide date range, since each request only pulls one page.
@@ -31,9 +32,9 @@ function isRateLimited(key: string): boolean {
   return timestamps.length > RATE_LIMIT;
 }
 
-function validateBody(input: unknown): { from_date: string; to_date: string; cursor: string | null; tag: string } | null {
+function validateBody(input: unknown): { from_date: string; to_date: string; cursor: string | null; tags: string[] } | null {
   if (typeof input !== "object" || input === null) return null;
-  const { from_date, to_date, cursor, tag } = input as Record<string, unknown>;
+  const { from_date, to_date, cursor, tags } = input as Record<string, unknown>;
 
   if (typeof from_date !== "string" || !DATE_RE.test(from_date) || Number.isNaN(Date.parse(from_date))) return null;
   if (typeof to_date !== "string" || !DATE_RE.test(to_date) || Number.isNaN(Date.parse(to_date))) return null;
@@ -44,13 +45,18 @@ function validateBody(input: unknown): { from_date: string; to_date: string; cur
 
   if (cursor !== undefined && cursor !== null && typeof cursor !== "string") return null;
 
-  if (tag !== undefined && (typeof tag !== "string" || tag.trim().length === 0 || tag.length > MAX_TAG_LENGTH)) return null;
+  let cleanTags: string[] = [LOST_IN_TRANSIT_TAG];
+  if (tags !== undefined) {
+    if (!Array.isArray(tags) || tags.length === 0 || tags.length > MAX_TAGS) return null;
+    if (!tags.every((t) => typeof t === "string" && t.trim().length > 0 && t.length <= MAX_TAG_LENGTH)) return null;
+    cleanTags = tags.map((t) => (t as string).trim());
+  }
 
   return {
     from_date,
     to_date,
     cursor: (cursor as string | null | undefined) ?? null,
-    tag: typeof tag === "string" ? tag.trim() : LOST_IN_TRANSIT_TAG,
+    tags: cleanTags,
   };
 }
 
@@ -66,10 +72,10 @@ export async function POST(request: NextRequest) {
   try { raw = await request.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
 
   const body = validateBody(raw);
-  if (!body) return NextResponse.json({ error: "Invalid request: expected {from_date, to_date, cursor, tag?}, spanning at most 90 days" }, { status: 400 });
+  if (!body) return NextResponse.json({ error: "Invalid request: expected {from_date, to_date, cursor, tags?}, spanning at most 90 days" }, { status: 400 });
 
   try {
-    const page = await fetchOnePage(body.from_date, body.to_date, body.cursor, body.tag);
+    const page = await fetchOnePage(body.from_date, body.to_date, body.cursor, body.tags);
     return NextResponse.json({
       checked: page.checked,
       tickets: page.tickets,
