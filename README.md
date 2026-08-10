@@ -36,9 +36,12 @@ npm run dev
 | `AUTH_GOOGLE_SECRET`            | OAuth client secret from the Google Cloud Console.                             |
 | `ALLOWED_EMAILS`                | Comma-separated list of Google account emails allowed to sign in.              |
 | `AUTH_URL`                      | Full URL of the deployed app (needed so callback URLs are built correctly).    |
+| `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` | Optional. Server/client DSN for Sentry error tracking. Unset = disabled. |
+| `SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` | Optional. Only needed to upload source maps for readable stack traces. |
 
 The app validates all required env vars on server startup and fails fast with a clear error
-listing what's missing, rather than starting in a broken state.
+listing what's missing, rather than starting in a broken state. Sentry is optional and stays
+fully disabled (no-op) until `SENTRY_DSN` / `NEXT_PUBLIC_SENTRY_DSN` are set.
 
 In the Google Cloud Console, add these as authorized redirect URIs for the OAuth client:
 `http://localhost:3000/api/auth/callback/google` (dev) and

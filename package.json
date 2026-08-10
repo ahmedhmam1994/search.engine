@@ -6,9 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.70.0",
     "@vercel/speed-insights": "^2.0.0",
     "lucide-react": "^0.468.0",
     "next": "^15.1.0",
@@ -25,6 +27,7 @@
     "eslint-config-next": "^15.5.23",
     "tailwindcss": "^4.0.0",
     "tw-animate-css": "^1.2.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.10"
   }
 }
